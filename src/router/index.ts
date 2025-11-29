@@ -39,6 +39,11 @@ const router = createRouter({
       name: 'monaco',
       component: () => import('../views/MonacoDemo.vue'),
     },
+    {
+      path: '/file-explorer',
+      name: 'file-explorer',
+      component: () => import('../views/FileExplorerDemo.vue'),
+    },
   ],
 })
 

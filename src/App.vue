@@ -14,6 +14,7 @@ import { RouterLink, RouterView } from 'vue-router'
         <RouterLink to="/vue-flow">Vue Flow</RouterLink>
         <RouterLink to="/vue-flow-custom">Vue Flow Custom</RouterLink>
         <RouterLink to="/monaco">Monaco</RouterLink>
+        <RouterLink to="/file-explorer">File Explorer</RouterLink>
       </div>
     </nav>
 

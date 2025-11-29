@@ -1,279 +1,402 @@
 <template>
   <div class="monaco-demo">
+    <h1 class="demo-title">Monaco Editor IDE</h1>
+    <p class="demo-description">A fully-featured code editor powered by Monaco Editor with file management, multiple tabs, and code execution</p>
+    
     <div class="ide-container">
-      <!-- Sidebar / File Explorer -->
-      <div class="sidebar">
-        <div class="sidebar-header">
-          <h3>EXPLORER</h3>
-          <button @click="addNewFile" class="icon-btn" title="New File">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M9 7h3l-4-4-4 4h3v6h2V7z"/>
-            </svg>
-          </button>
-        </div>
-        
-        <div class="file-tree">
-          <div 
-            v-for="file in files" 
-            :key="file.name"
-            class="file-item"
-            :class="{ active: currentFile === file.name }"
-            @click="openFile(file.name)"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" class="file-icon">
-              <path d="M9 1H4L1 4v10l3 1h8l3-1V5l-3-4H9zM4 2h5v3h4v8H4V2z"/>
-            </svg>
-            <span class="file-name">{{ file.name }}</span>
-            <button @click.stop="deleteFile(file.name)" class="delete-file-btn" title="Delete">×</button>
-          </div>
-        </div>
-      </div>
+      <FileExplorer 
+        :items="fileTree"
+        :currentFile="currentFile"
+        :expandedFolders="expandedFolders"
+        @newFile="addNewFile(null)"
+        @newFolder="addNewFolder(null)"
+        @openFile="handleFileClick"
+        @toggleFolder="toggleFolder"
+        @deleteItem="deleteItem"
+        @contextmenu="handleItemContextMenu"
+      />
       
-      <!-- Main Editor Area -->
       <div class="main-area">
-        <div class="toolbar">
-          <div class="file-tabs">
-            <div class="file-tab active">
-              <span>{{ currentFile }}</span>
-            </div>
-          </div>
-          
-          <div class="toolbar-actions">
-            <select v-model="selectedTheme" @change="changeTheme" class="theme-select">
-              <option value="vs">Light</option>
-              <option value="vs-dark">Dark</option>
-              <option value="hc-black">High Contrast</option>
-            </select>
-            
-            <button @click="runCode" class="run-button">▶ Run</button>
-          </div>
-        </div>
+        <EditorTabs 
+          :tabs="openTabs"
+          :currentTab="currentFile"
+          :theme="selectedTheme"
+          @switch="switchToFile"
+          @close="closeTab"
+          @themeChange="changeTheme"
+          @run="runCode"
+        />
         
-        <div class="editor-container">
+        <div class="editor-wrapper">
           <div ref="editorDiv" class="editor"></div>
         </div>
         
-        <div class="output-panel" v-if="output">
-          <div class="output-header">
-            <span>OUTPUT</span>
-            <button @click="output = ''" class="clear-btn">Clear</button>
-          </div>
-          <pre class="output-content">{{ output }}</pre>
-        </div>
+        <OutputPanel 
+          :output="output"
+          @clear="output = ''"
+        />
+      </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div 
+      v-if="contextMenu.visible" 
+      class="context-menu"
+      :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
+      @click="contextMenu.visible = false"
+    >
+      <div class="context-menu-item" @click="addNewFile(contextMenu.target)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M9.5 1.1l3.4 3.5.1.4v2h-1V6H8V2H3v11h4v1H2.5l-.5-.5v-12l.5-.5h6.7l.3.1z"/>
+        </svg>
+        New File
+      </div>
+      <div class="context-menu-item" @click="addNewFolder(contextMenu.target)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M14.5 2H7.71l-.85-.85L6.51 1h-5l-.5.5v11l.5.5h13l.5-.5v-10L14.5 2z"/>
+        </svg>
+        New Folder
+      </div>
+      <div v-if="contextMenu.target" class="context-menu-divider"></div>
+      <div v-if="contextMenu.target" class="context-menu-item danger" @click="deleteItem(contextMenu.target)">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M10 3h3v1h-1v9l-1 1H4l-1-1V4H2V3h3V2a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zM9 2H6v1h3V2zM4 13h7V4H4v9zm2-8H5v7h1V5zm1 0h1v7H7V5zm2 0h1v7H9V5z"/>
+        </svg>
+        Delete
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import * as monaco from 'monaco-editor'
+import FileExplorer from '../components/FileExplorer.vue'
+import EditorTabs from '../components/EditorTabs.vue'
+import OutputPanel from '../components/OutputPanel.vue'
+
+interface FileItem {
+  name: string
+  path: string
+  type: 'file' | 'folder'
+  content?: string
+  language?: string
+  expanded?: boolean
+  depth: number
+}
 
 const editorDiv = ref<HTMLElement | null>(null)
 let editor: monaco.editor.IStandaloneCodeEditor | null = null
 
 const selectedTheme = ref('vs-dark')
 const output = ref('')
-const currentFile = ref('app.js')
+const currentFile = ref('src/app.js')
+const openTabs = ref<string[]>(['src/app.js'])
+const files = ref<Map<string, FileItem>>(new Map())
+const expandedFolders = ref<Set<string>>(new Set(['src', 'src/components', 'styles']))
 
-interface File {
-  name: string
-  content: string
-  language: string
-}
+const contextMenu = ref({
+  visible: false,
+  x: 0,
+  y: 0,
+  target: null as string | null
+})
 
-const files = ref<File[]>([
-  {
-    name: 'app.js',
-    content: `// Welcome to the IDE!
-// Click on files in the sidebar to switch between them
-// Or create new files with the + button
+// Initialize file system
+const initFileSystem = () => {
+  const initialFiles: FileItem[] = [
+    { name: 'src', path: 'src', type: 'folder', depth: 0, expanded: true },
+    { 
+      name: 'app.js', 
+      path: 'src/app.js', 
+      type: 'file', 
+      depth: 1,
+      content: `// Welcome to the Monaco IDE!
+// Right-click to create folders and files
+// Open multiple files with tabs
 
 function greet(name) {
   return \`Hello, \${name}!\`;
 }
 
 console.log(greet('World'));
-console.log('Click "Run" to execute this code');`,
-    language: 'javascript'
-  },
-  {
-    name: 'styles.css',
-    content: `/* CSS Stylesheet */
-body {
+console.log('Create new files and folders using right-click!');
+console.log('Edit this code and click Run to execute it.');`,
+      language: 'javascript'
+    },
+    { name: 'components', path: 'src/components', type: 'folder', depth: 1, expanded: true },
+    { 
+      name: 'Button.js', 
+      path: 'src/components/Button.js', 
+      type: 'file', 
+      depth: 2,
+      content: `// Button Component
+export default function Button({ label, onClick }) {
+  return (
+    <button onClick={onClick} className="custom-button">
+      {label}
+    </button>
+  );
+}`,
+      language: 'javascript'
+    },
+    { name: 'styles', path: 'styles', type: 'folder', depth: 0, expanded: true },
+    { 
+      name: 'main.css', 
+      path: 'styles/main.css', 
+      type: 'file', 
+      depth: 1,
+      content: `/* Main Stylesheet */
+* {
   margin: 0;
-  font-family: 'Segoe UI', Arial, sans-serif;
-  background: #1e1e1e;
-  color: #d4d4d4;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #1e1e1e;
+  color: #d4d4d4;
   padding: 20px;
 }
 
-.button {
-  background: #0e639c;
+.custom-button {
+  padding: 10px 20px;
+  background: #0078d4;
   color: white;
   border: none;
-  padding: 10px 20px;
   border-radius: 4px;
   cursor: pointer;
-  transition: background 0.3s;
+  font-size: 14px;
+  transition: background 0.3s ease;
 }
 
-.button:hover {
-  background: #1177bb;
+.custom-button:hover {
+  background: #026ec1;
 }`,
-    language: 'css'
-  },
-  {
-    name: 'data.json',
-    content: `{
-  "app": {
-    "name": "My IDE",
-    "version": "1.0.0",
-    "features": [
-      "File Explorer",
-      "Multiple Files",
-      "Syntax Highlighting",
-      "Code Execution"
-    ]
-  },
-  "config": {
-    "theme": "dark",
-    "autoSave": true,
-    "fontSize": 14
-  }
-}`,
-    language: 'json'
-  }
-])
+      language: 'css'
+    },
+    { 
+      name: 'README.md', 
+      path: 'README.md', 
+      type: 'file', 
+      depth: 0,
+      content: `# Monaco Editor IDE
 
-const getLanguageFromExtension = (filename: string): string => {
-  const ext = filename.split('.').pop()?.toLowerCase()
-  const langMap: Record<string, string> = {
-    'js': 'javascript',
-    'ts': 'typescript',
-    'py': 'python',
-    'html': 'html',
-    'css': 'css',
-    'json': 'json',
-    'md': 'markdown',
-    'txt': 'plaintext'
-  }
-  return langMap[ext || ''] || 'plaintext'
+A VS Code-like IDE built with Monaco Editor and Vue 3.
+
+## Features
+
+- 📁 File explorer with folders
+- 📝 Multiple file tabs
+- 🎨 Syntax highlighting
+- ▶️ JavaScript code execution
+- 🎯 Context menu support
+- 🌈 Multiple themes
+
+## Usage
+
+1. Click on files to open them
+2. Right-click to add files/folders
+3. Edit code in the editor
+4. Click Run to execute JavaScript
+
+Built with Vue 3 + TypeScript + Monaco Editor`,
+      language: 'markdown'
+    }
+  ]
+
+  initialFiles.forEach(file => files.value.set(file.path, file))
 }
 
-onMounted(() => {
-  if (editorDiv.value) {
-    const currentFileData = files.value.find(f => f.name === currentFile.value)
-    editor = monaco.editor.create(editorDiv.value, {
-      value: currentFileData?.content || '',
-      language: currentFileData?.language || 'javascript',
-      theme: selectedTheme.value,
-      automaticLayout: true,
-      fontSize: 14,
-      minimap: { enabled: true },
-      scrollBeyondLastLine: false,
-      wordWrap: 'on',
-      tabSize: 2
-    })
+// Build hierarchical file tree
+const fileTree = computed(() => {
+  const result: (FileItem & { expanded?: boolean })[] = []
+  const sortedFiles = Array.from(files.value.values()).sort((a, b) => {
+    if (a.depth !== b.depth) return a.depth - b.depth
+    if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
+
+  for (const file of sortedFiles) {
+    const parentPath = file.path.split('/').slice(0, -1).join('/')
+    const isVisible = !parentPath || expandedFolders.value.has(parentPath)
     
-    // Save content when typing
-    editor.onDidChangeModelContent(() => {
-      saveCurrentFile()
-    })
-  }
-})
-
-onBeforeUnmount(() => {
-  saveCurrentFile()
-  editor?.dispose()
-})
-
-const saveCurrentFile = () => {
-  if (editor) {
-    const file = files.value.find(f => f.name === currentFile.value)
-    if (file) {
-      file.content = editor.getValue()
+    if (isVisible) {
+      result.push({
+        ...file,
+        expanded: file.type === 'folder' && expandedFolders.value.has(file.path)
+      })
     }
+  }
+
+  return result
+})
+
+// File management
+const toggleFolder = (path: string) => {
+  if (expandedFolders.value.has(path)) {
+    expandedFolders.value.delete(path)
+  } else {
+    expandedFolders.value.add(path)
   }
 }
 
-const openFile = (filename: string) => {
-  if (filename === currentFile.value) return
-  
-  saveCurrentFile()
-  
-  const file = files.value.find(f => f.name === filename)
+const handleFileClick = (item: FileItem) => {
+  if (item.type === 'file') {
+    openFile(item.path)
+  } else {
+    toggleFolder(item.path)
+  }
+}
+
+const openFile = (path: string) => {
+  if (!openTabs.value.includes(path)) {
+    openTabs.value.push(path)
+  }
+  switchToFile(path)
+}
+
+const switchToFile = (path: string) => {
+  currentFile.value = path
+  const file = files.value.get(path)
   if (file && editor) {
-    currentFile.value = filename
-    editor.setValue(file.content)
-    const model = editor.getModel()
-    if (model) {
-      monaco.editor.setModelLanguage(model, file.language)
+    const model = monaco.editor.createModel(file.content || '', file.language || 'plaintext')
+    editor.setModel(model)
+  }
+}
+
+const closeTab = (path: string) => {
+  const index = openTabs.value.indexOf(path)
+  if (index > -1) {
+    openTabs.value.splice(index, 1)
+    if (currentFile.value === path && openTabs.value.length > 0) {
+      switchToFile(openTabs.value[Math.max(0, index - 1)])
+    } else if (openTabs.value.length === 0) {
+      currentFile.value = null
+      if (editor) {
+        editor.setModel(null)
+      }
     }
   }
 }
 
-const addNewFile = () => {
-  const filename = prompt('Enter filename (e.g., script.js, styles.css):')
-  if (!filename) return
-  
-  if (files.value.find(f => f.name === filename)) {
+const addNewFile = (parentPath: string | null) => {
+  const fileName = prompt('Enter file name:')
+  if (!fileName) return
+
+  const parent = parentPath ? files.value.get(parentPath) : null
+  const depth = parent ? parent.depth + 1 : 0
+  const path = parentPath ? `${parentPath}/${fileName}` : fileName
+
+  if (files.value.has(path)) {
     alert('File already exists!')
     return
   }
-  
-  const language = getLanguageFromExtension(filename)
-  const newFile: File = {
-    name: filename,
-    content: `// New file: ${filename}\n`,
-    language
+
+  const ext = fileName.split('.').pop()?.toLowerCase()
+  const languageMap: Record<string, string> = {
+    'js': 'javascript',
+    'ts': 'typescript',
+    'json': 'json',
+    'html': 'html',
+    'css': 'css',
+    'md': 'markdown',
+    'py': 'python'
   }
-  
-  files.value.push(newFile)
-  openFile(filename)
+
+  files.value.set(path, {
+    name: fileName,
+    path,
+    type: 'file',
+    content: `// New file: ${fileName}\n`,
+    language: languageMap[ext || ''] || 'plaintext',
+    depth
+  })
+
+  if (parentPath) {
+    expandedFolders.value.add(parentPath)
+  }
+
+  openFile(path)
 }
 
-const deleteFile = (filename: string) => {
-  if (files.value.length === 1) {
-    alert('Cannot delete the last file!')
+const addNewFolder = (parentPath: string | null) => {
+  const folderName = prompt('Enter folder name:')
+  if (!folderName) return
+
+  const parent = parentPath ? files.value.get(parentPath) : null
+  const depth = parent ? parent.depth + 1 : 0
+  const path = parentPath ? `${parentPath}/${folderName}` : folderName
+
+  if (files.value.has(path)) {
+    alert('Folder already exists!')
     return
   }
-  
-  if (!confirm(`Delete ${filename}?`)) return
-  
-  files.value = files.value.filter(f => f.name !== filename)
-  
-  if (currentFile.value === filename) {
-    openFile(files.value[0].name)
+
+  files.value.set(path, {
+    name: folderName,
+    path,
+    type: 'folder',
+    depth
+  })
+
+  if (parentPath) {
+    expandedFolders.value.add(parentPath)
+  }
+  expandedFolders.value.add(path)
+}
+
+const deleteItem = (path: string) => {
+  if (!confirm(`Delete ${path}?`)) return
+
+  // Delete the item and all its children
+  const toDelete = Array.from(files.value.keys()).filter(p => p === path || p.startsWith(path + '/'))
+  toDelete.forEach(p => {
+    files.value.delete(p)
+    expandedFolders.value.delete(p)
+    closeTab(p)
+  })
+}
+
+// Context menu
+const handleItemContextMenu = (event: MouseEvent, item: FileItem) => {
+  event.preventDefault()
+  contextMenu.value = {
+    visible: true,
+    x: event.clientX,
+    y: event.clientY,
+    target: item.path
   }
 }
 
-const changeTheme = () => {
-  monaco.editor.setTheme(selectedTheme.value)
+// Theme management
+const changeTheme = (theme: string) => {
+  selectedTheme.value = theme
+  monaco.editor.setTheme(theme)
 }
 
+// Code execution
 const runCode = () => {
-  const file = files.value.find(f => f.name === currentFile.value)
-  
+  if (!currentFile.value) {
+    output.value = 'No file selected'
+    return
+  }
+
+  const file = files.value.get(currentFile.value)
   if (!file) return
-  
+
   if (file.language === 'javascript') {
     try {
+      const code = editor?.getValue() || ''
       const logs: string[] = []
       const originalLog = console.log
       console.log = (...args) => {
         logs.push(args.map(arg => String(arg)).join(' '))
       }
-      
-      eval(file.content)
-      
+
+      eval(code)
       console.log = originalLog
-      
       output.value = logs.join('\n') || 'Code executed successfully (no output)'
     } catch (error) {
       output.value = `Error: ${error}`
@@ -282,196 +405,76 @@ const runCode = () => {
     output.value = `Code execution is only available for JavaScript files.\n\nCurrent file: ${file.name} (${file.language})`
   }
 }
+
+// Monaco Editor initialization
+onMounted(() => {
+  initFileSystem()
+
+  if (editorDiv.value) {
+    editor = monaco.editor.create(editorDiv.value, {
+      value: files.value.get(currentFile.value)?.content || '',
+      language: files.value.get(currentFile.value)?.language || 'javascript',
+      theme: selectedTheme.value,
+      automaticLayout: true,
+      minimap: { enabled: true },
+      fontSize: 14,
+      tabSize: 2,
+      scrollBeyondLastLine: false
+    })
+  }
+
+  // Close context menu on click
+  document.addEventListener('click', () => {
+    contextMenu.value.visible = false
+  })
+})
+
+onBeforeUnmount(() => {
+  editor?.dispose()
+})
 </script>
 
 <style scoped>
 .monaco-demo {
-  height: calc(100vh - 80px);
+  padding: 2rem;
+  min-height: calc(100vh - 80px);
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   background: #1e1e1e;
 }
 
+.demo-title {
+  font-size: 2rem;
+  margin: 0 0 0.5rem 0;
+  color: #ffffff;
+}
+
+.demo-description {
+  color: #cccccc;
+  margin-bottom: 2rem;
+  line-height: 1.6;
+}
+
 .ide-container {
+  flex: 1;
   display: flex;
-  height: 100%;
+  border: 1px solid #3e3e42;
+  border-radius: 8px;
   overflow: hidden;
-}
-
-/* Sidebar */
-.sidebar {
-  width: 250px;
   background: #252526;
-  border-right: 1px solid #3e3e42;
-  display: flex;
-  flex-direction: column;
+  min-height: 0;
 }
 
-.sidebar-header {
-  padding: 10px 15px;
-  background: #2d2d30;
-  border-bottom: 1px solid #3e3e42;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.sidebar-header h3 {
-  margin: 0;
-  font-size: 11px;
-  font-weight: 600;
-  color: #cccccc;
-  letter-spacing: 0.5px;
-}
-
-.icon-btn {
-  background: transparent;
-  border: none;
-  color: #cccccc;
-  cursor: pointer;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 3px;
-}
-
-.icon-btn:hover {
-  background: #3e3e42;
-}
-
-.file-tree {
-  flex: 1;
-  overflow-y: auto;
-  padding: 5px 0;
-}
-
-.file-item {
-  display: flex;
-  align-items: center;
-  padding: 5px 15px;
-  cursor: pointer;
-  color: #cccccc;
-  gap: 8px;
-  transition: background 0.2s;
-}
-
-.file-item:hover {
-  background: #2a2d2e;
-}
-
-.file-item.active {
-  background: #37373d;
-}
-
-.file-icon {
-  flex-shrink: 0;
-  opacity: 0.8;
-}
-
-.file-name {
-  flex: 1;
-  font-size: 13px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.delete-file-btn {
-  background: transparent;
-  border: none;
-  color: #858585;
-  font-size: 20px;
-  cursor: pointer;
-  padding: 0;
-  width: 20px;
-  height: 20px;
-  line-height: 1;
-  display: none;
-  border-radius: 3px;
-}
-
-.file-item:hover .delete-file-btn {
-  display: block;
-}
-
-.delete-file-btn:hover {
-  background: #3e3e42;
-  color: #f48771;
-}
-
-/* Main Area */
 .main-area {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
-}
-
-.toolbar {
-  background: #2d2d30;
-  border-bottom: 1px solid #3e3e42;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  height: 35px;
-}
-
-.file-tabs {
-  display: flex;
-  height: 100%;
-}
-
-.file-tab {
-  padding: 8px 20px;
   background: #1e1e1e;
-  color: #ffffff;
-  font-size: 13px;
-  border-right: 1px solid #3e3e42;
-  display: flex;
-  align-items: center;
 }
 
-.toolbar-actions {
-  display: flex;
-  gap: 10px;
-  padding: 0 10px;
-  align-items: center;
-}
-
-.theme-select {
-  padding: 4px 8px;
-  background: #3c3c3c;
-  border: 1px solid #3e3e42;
-  border-radius: 3px;
-  color: #cccccc;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.theme-select:hover {
-  background: #4e4e4e;
-}
-
-.run-button {
-  padding: 4px 12px;
-  background: #0e639c;
-  color: white;
-  border: none;
-  border-radius: 3px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.run-button:hover {
-  background: #1177bb;
-}
-
-.editor-container {
+.editor-wrapper {
   flex: 1;
   min-height: 0;
   background: #1e1e1e;
@@ -482,72 +485,49 @@ const runCode = () => {
   height: 100%;
 }
 
-/* Output Panel */
-.output-panel {
-  height: 200px;
-  background: #1e1e1e;
-  border-top: 1px solid #3e3e42;
-  display: flex;
-  flex-direction: column;
+/* Context Menu */
+.context-menu {
+  position: fixed;
+  background: #3c3c3c;
+  border: 1px solid #454545;
+  border-radius: 5px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  padding: 4px 0;
+  min-width: 200px;
+  z-index: 1000;
+  font-size: 13px;
 }
 
-.output-header {
-  padding: 8px 15px;
-  background: #2d2d30;
-  border-bottom: 1px solid #3e3e42;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 11px;
-  font-weight: 600;
-  color: #cccccc;
-  letter-spacing: 0.5px;
-}
-
-.clear-btn {
-  background: transparent;
-  border: none;
+.context-menu-item {
+  padding: 6px 16px 6px 12px;
   color: #cccccc;
   cursor: pointer;
-  font-size: 11px;
-  padding: 4px 8px;
-  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: background 0.1s ease, color 0.1s ease;
+  line-height: 22px;
 }
 
-.clear-btn:hover {
-  background: #3e3e42;
+.context-menu-item:hover {
+  background: #094771;
+  color: #ffffff;
 }
 
-.output-content {
-  flex: 1;
-  margin: 0;
-  padding: 15px;
-  font-family: 'Consolas', 'Courier New', monospace;
-  font-size: 13px;
-  color: #d4d4d4;
-  overflow-y: auto;
-  white-space: pre-wrap;
+.context-menu-item.danger:hover {
+  background: #c5302f;
+  color: #ffffff;
 }
 
-/* Scrollbar styling */
-.file-tree::-webkit-scrollbar,
-.output-content::-webkit-scrollbar {
-  width: 10px;
+.context-menu-item svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
-.file-tree::-webkit-scrollbar-track,
-.output-content::-webkit-scrollbar-track {
-  background: #1e1e1e;
-}
-
-.file-tree::-webkit-scrollbar-thumb,
-.output-content::-webkit-scrollbar-thumb {
-  background: #424242;
-  border-radius: 5px;
-}
-
-.file-tree::-webkit-scrollbar-thumb:hover,
-.output-content::-webkit-scrollbar-thumb:hover {
-  background: #4e4e4e;
+.context-menu-divider {
+  height: 1px;
+  background: #454545;
+  margin: 4px 8px;
 }
 </style>
