@@ -15,6 +15,11 @@ const router = createRouter({
       component: () => import('../views/BaklavaDemo.vue'),
     },
     {
+      path: '/baklava-js',
+      name: 'baklava-js',
+      component: () => import('../views/BaklavaDemo-JS.vue'),
+    },
+    {
       path: '/baklava-raw',
       name: 'baklava-raw',
       component: () => import('../views/BaklavaRaw.vue'),

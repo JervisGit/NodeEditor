@@ -1,46 +1,66 @@
 <template>
   <div class="monaco-demo">
-    <h1>Monaco Editor Demo</h1>
-    <p class="description">The code editor that powers VS Code</p>
-    
-    <div class="toolbar">
-      <select v-model="selectedLanguage" @change="changeLanguage" class="language-select">
-        <option value="javascript">JavaScript</option>
-        <option value="typescript">TypeScript</option>
-        <option value="python">Python</option>
-        <option value="html">HTML</option>
-        <option value="css">CSS</option>
-        <option value="json">JSON</option>
-      </select>
+    <div class="ide-container">
+      <!-- Sidebar / File Explorer -->
+      <div class="sidebar">
+        <div class="sidebar-header">
+          <h3>EXPLORER</h3>
+          <button @click="addNewFile" class="icon-btn" title="New File">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M9 7h3l-4-4-4 4h3v6h2V7z"/>
+            </svg>
+          </button>
+        </div>
+        
+        <div class="file-tree">
+          <div 
+            v-for="file in files" 
+            :key="file.name"
+            class="file-item"
+            :class="{ active: currentFile === file.name }"
+            @click="openFile(file.name)"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" class="file-icon">
+              <path d="M9 1H4L1 4v10l3 1h8l3-1V5l-3-4H9zM4 2h5v3h4v8H4V2z"/>
+            </svg>
+            <span class="file-name">{{ file.name }}</span>
+            <button @click.stop="deleteFile(file.name)" class="delete-file-btn" title="Delete">×</button>
+          </div>
+        </div>
+      </div>
       
-      <select v-model="selectedTheme" @change="changeTheme" class="theme-select">
-        <option value="vs">Light</option>
-        <option value="vs-dark">Dark</option>
-        <option value="hc-black">High Contrast</option>
-      </select>
-      
-      <button @click="runCode" class="run-button">Run Code</button>
-    </div>
-    
-    <div class="editor-container">
-      <div ref="editorDiv" class="editor"></div>
-    </div>
-    
-    <div class="output" v-if="output">
-      <h3>Output:</h3>
-      <pre>{{ output }}</pre>
-    </div>
-    
-    <div class="info">
-      <h3>Features:</h3>
-      <ul>
-        <li>IntelliSense (code completion)</li>
-        <li>Syntax highlighting for 100+ languages</li>
-        <li>Multiple themes</li>
-        <li>Find and replace</li>
-        <li>Code folding</li>
-        <li>Multi-cursor editing</li>
-      </ul>
+      <!-- Main Editor Area -->
+      <div class="main-area">
+        <div class="toolbar">
+          <div class="file-tabs">
+            <div class="file-tab active">
+              <span>{{ currentFile }}</span>
+            </div>
+          </div>
+          
+          <div class="toolbar-actions">
+            <select v-model="selectedTheme" @change="changeTheme" class="theme-select">
+              <option value="vs">Light</option>
+              <option value="vs-dark">Dark</option>
+              <option value="hc-black">High Contrast</option>
+            </select>
+            
+            <button @click="runCode" class="run-button">▶ Run</button>
+          </div>
+        </div>
+        
+        <div class="editor-container">
+          <div ref="editorDiv" class="editor"></div>
+        </div>
+        
+        <div class="output-panel" v-if="output">
+          <div class="output-header">
+            <span>OUTPUT</span>
+            <button @click="output = ''" class="clear-btn">Clear</button>
+          </div>
+          <pre class="output-content">{{ output }}</pre>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -52,112 +72,184 @@ import * as monaco from 'monaco-editor'
 const editorDiv = ref<HTMLElement | null>(null)
 let editor: monaco.editor.IStandaloneCodeEditor | null = null
 
-const selectedLanguage = ref('javascript')
 const selectedTheme = ref('vs-dark')
 const output = ref('')
+const currentFile = ref('app.js')
 
-const sampleCode: Record<string, string> = {
-  javascript: `// JavaScript Example
-function fibonacci(n) {
-  if (n <= 1) return n;
-  return fibonacci(n - 1) + fibonacci(n - 2);
+interface File {
+  name: string
+  content: string
+  language: string
 }
 
-console.log('Fibonacci sequence:');
-for (let i = 0; i < 10; i++) {
-  console.log(\`F(\${i}) = \${fibonacci(i)}\`);
-}`,
-  
-  typescript: `// TypeScript Example
-interface Person {
-  name: string;
-  age: number;
+const files = ref<File[]>([
+  {
+    name: 'app.js',
+    content: `// Welcome to the IDE!
+// Click on files in the sidebar to switch between them
+// Or create new files with the + button
+
+function greet(name) {
+  return \`Hello, \${name}!\`;
 }
 
-function greet(person: Person): string {
-  return \`Hello, \${person.name}! You are \${person.age} years old.\`;
+console.log(greet('World'));
+console.log('Click "Run" to execute this code');`,
+    language: 'javascript'
+  },
+  {
+    name: 'styles.css',
+    content: `/* CSS Stylesheet */
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  background: #1e1e1e;
+  color: #d4d4d4;
 }
 
-const user: Person = { name: 'Alice', age: 30 };
-console.log(greet(user));`,
-  
-  python: `# Python Example
-def factorial(n):
-    if n <= 1:
-        return 1
-    return n * factorial(n - 1)
-
-for i in range(10):
-    print(f"Factorial of {i} is {factorial(i)}")`,
-  
-  html: `<!-- HTML Example -->
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sample Page</title>
-</head>
-<body>
-    <h1>Hello, World!</h1>
-    <p>This is a sample HTML page.</p>
-</body>
-</html>`,
-  
-  css: `/* CSS Example */
 .container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
 }
 
-.card {
-  background: white;
-  padding: 2rem;
-  border-radius: 10px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+.button {
+  background: #0e639c;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.button:hover {
+  background: #1177bb;
 }`,
-  
-  json: `{
-  "name": "monaco-editor-demo",
-  "version": "1.0.0",
-  "description": "A demo of Monaco Editor features",
-  "author": "Your Name",
-  "dependencies": {
-    "vue": "^3.0.0",
-    "monaco-editor": "^0.45.0"
+    language: 'css'
+  },
+  {
+    name: 'data.json',
+    content: `{
+  "app": {
+    "name": "My IDE",
+    "version": "1.0.0",
+    "features": [
+      "File Explorer",
+      "Multiple Files",
+      "Syntax Highlighting",
+      "Code Execution"
+    ]
+  },
+  "config": {
+    "theme": "dark",
+    "autoSave": true,
+    "fontSize": 14
   }
-}`
+}`,
+    language: 'json'
+  }
+])
+
+const getLanguageFromExtension = (filename: string): string => {
+  const ext = filename.split('.').pop()?.toLowerCase()
+  const langMap: Record<string, string> = {
+    'js': 'javascript',
+    'ts': 'typescript',
+    'py': 'python',
+    'html': 'html',
+    'css': 'css',
+    'json': 'json',
+    'md': 'markdown',
+    'txt': 'plaintext'
+  }
+  return langMap[ext || ''] || 'plaintext'
 }
 
 onMounted(() => {
   if (editorDiv.value) {
+    const currentFileData = files.value.find(f => f.name === currentFile.value)
     editor = monaco.editor.create(editorDiv.value, {
-      value: sampleCode[selectedLanguage.value],
-      language: selectedLanguage.value,
+      value: currentFileData?.content || '',
+      language: currentFileData?.language || 'javascript',
       theme: selectedTheme.value,
       automaticLayout: true,
       fontSize: 14,
       minimap: { enabled: true },
       scrollBeyondLastLine: false,
-      wordWrap: 'on'
+      wordWrap: 'on',
+      tabSize: 2
+    })
+    
+    // Save content when typing
+    editor.onDidChangeModelContent(() => {
+      saveCurrentFile()
     })
   }
 })
 
 onBeforeUnmount(() => {
+  saveCurrentFile()
   editor?.dispose()
 })
 
-const changeLanguage = () => {
+const saveCurrentFile = () => {
   if (editor) {
+    const file = files.value.find(f => f.name === currentFile.value)
+    if (file) {
+      file.content = editor.getValue()
+    }
+  }
+}
+
+const openFile = (filename: string) => {
+  if (filename === currentFile.value) return
+  
+  saveCurrentFile()
+  
+  const file = files.value.find(f => f.name === filename)
+  if (file && editor) {
+    currentFile.value = filename
+    editor.setValue(file.content)
     const model = editor.getModel()
     if (model) {
-      monaco.editor.setModelLanguage(model, selectedLanguage.value)
-      editor.setValue(sampleCode[selectedLanguage.value])
+      monaco.editor.setModelLanguage(model, file.language)
     }
+  }
+}
+
+const addNewFile = () => {
+  const filename = prompt('Enter filename (e.g., script.js, styles.css):')
+  if (!filename) return
+  
+  if (files.value.find(f => f.name === filename)) {
+    alert('File already exists!')
+    return
+  }
+  
+  const language = getLanguageFromExtension(filename)
+  const newFile: File = {
+    name: filename,
+    content: `// New file: ${filename}\n`,
+    language
+  }
+  
+  files.value.push(newFile)
+  openFile(filename)
+}
+
+const deleteFile = (filename: string) => {
+  if (files.value.length === 1) {
+    alert('Cannot delete the last file!')
+    return
+  }
+  
+  if (!confirm(`Delete ${filename}?`)) return
+  
+  files.value = files.value.filter(f => f.name !== filename)
+  
+  if (currentFile.value === filename) {
+    openFile(files.value[0].name)
   }
 }
 
@@ -166,90 +258,223 @@ const changeTheme = () => {
 }
 
 const runCode = () => {
-  if (editor) {
-    const code = editor.getValue()
-    
-    if (selectedLanguage.value === 'javascript') {
-      try {
-        // Capture console.log output
-        const logs: string[] = []
-        const originalLog = console.log
-        console.log = (...args) => {
-          logs.push(args.map(arg => String(arg)).join(' '))
-        }
-        
-        // Execute the code
-        eval(code)
-        
-        // Restore console.log
-        console.log = originalLog
-        
-        output.value = logs.join('\n') || 'Code executed successfully (no output)'
-      } catch (error) {
-        output.value = `Error: ${error}`
+  const file = files.value.find(f => f.name === currentFile.value)
+  
+  if (!file) return
+  
+  if (file.language === 'javascript') {
+    try {
+      const logs: string[] = []
+      const originalLog = console.log
+      console.log = (...args) => {
+        logs.push(args.map(arg => String(arg)).join(' '))
       }
-    } else {
-      output.value = `Code execution is only available for JavaScript in this demo.\n\nYour ${selectedLanguage.value} code:\n${code}`
+      
+      eval(file.content)
+      
+      console.log = originalLog
+      
+      output.value = logs.join('\n') || 'Code executed successfully (no output)'
+    } catch (error) {
+      output.value = `Error: ${error}`
     }
+  } else {
+    output.value = `Code execution is only available for JavaScript files.\n\nCurrent file: ${file.name} (${file.language})`
   }
 }
 </script>
 
 <style scoped>
 .monaco-demo {
-  padding: 20px;
   height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  background: #1e1e1e;
+}
+
+.ide-container {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 250px;
+  background: #252526;
+  border-right: 1px solid #3e3e42;
   display: flex;
   flex-direction: column;
 }
 
-h1 {
-  margin: 0 0 10px 0;
-  color: #2c3e50;
+.sidebar-header {
+  padding: 10px 15px;
+  background: #2d2d30;
+  border-bottom: 1px solid #3e3e42;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-.description {
-  margin: 0 0 20px 0;
-  color: #666;
+.sidebar-header h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: #cccccc;
+  letter-spacing: 0.5px;
+}
+
+.icon-btn {
+  background: transparent;
+  border: none;
+  color: #cccccc;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+}
+
+.icon-btn:hover {
+  background: #3e3e42;
+}
+
+.file-tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 5px 0;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  padding: 5px 15px;
+  cursor: pointer;
+  color: #cccccc;
+  gap: 8px;
+  transition: background 0.2s;
+}
+
+.file-item:hover {
+  background: #2a2d2e;
+}
+
+.file-item.active {
+  background: #37373d;
+}
+
+.file-icon {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.file-name {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delete-file-btn {
+  background: transparent;
+  border: none;
+  color: #858585;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  line-height: 1;
+  display: none;
+  border-radius: 3px;
+}
+
+.file-item:hover .delete-file-btn {
+  display: block;
+}
+
+.delete-file-btn:hover {
+  background: #3e3e42;
+  color: #f48771;
+}
+
+/* Main Area */
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .toolbar {
+  background: #2d2d30;
+  border-bottom: 1px solid #3e3e42;
   display: flex;
-  gap: 10px;
-  margin-bottom: 10px;
+  justify-content: space-between;
+  align-items: center;
+  height: 35px;
 }
 
-.language-select,
+.file-tabs {
+  display: flex;
+  height: 100%;
+}
+
+.file-tab {
+  padding: 8px 20px;
+  background: #1e1e1e;
+  color: #ffffff;
+  font-size: 13px;
+  border-right: 1px solid #3e3e42;
+  display: flex;
+  align-items: center;
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 10px;
+  padding: 0 10px;
+  align-items: center;
+}
+
 .theme-select {
-  padding: 8px 12px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  background: white;
+  padding: 4px 8px;
+  background: #3c3c3c;
+  border: 1px solid #3e3e42;
+  border-radius: 3px;
+  color: #cccccc;
+  font-size: 12px;
   cursor: pointer;
-  font-size: 14px;
+}
+
+.theme-select:hover {
+  background: #4e4e4e;
 }
 
 .run-button {
-  padding: 8px 16px;
-  background: #42b883;
+  padding: 4px 12px;
+  background: #0e639c;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 3px;
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .run-button:hover {
-  background: #35a372;
+  background: #1177bb;
 }
 
 .editor-container {
   flex: 1;
-  border: 2px solid #ddd;
-  border-radius: 8px;
-  overflow: hidden;
   min-height: 0;
+  background: #1e1e1e;
 }
 
 .editor {
@@ -257,41 +482,72 @@ h1 {
   height: 100%;
 }
 
-.output {
-  margin-top: 20px;
-  padding: 15px;
+/* Output Panel */
+.output-panel {
+  height: 200px;
   background: #1e1e1e;
-  color: #d4d4d4;
-  border-radius: 8px;
-  max-height: 200px;
-  overflow-y: auto;
+  border-top: 1px solid #3e3e42;
+  display: flex;
+  flex-direction: column;
 }
 
-.output h3 {
-  margin-top: 0;
-  color: #42b883;
+.output-header {
+  padding: 8px 15px;
+  background: #2d2d30;
+  border-bottom: 1px solid #3e3e42;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #cccccc;
+  letter-spacing: 0.5px;
 }
 
-.output pre {
+.clear-btn {
+  background: transparent;
+  border: none;
+  color: #cccccc;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 3px;
+}
+
+.clear-btn:hover {
+  background: #3e3e42;
+}
+
+.output-content {
+  flex: 1;
   margin: 0;
-  font-family: 'Courier New', monospace;
+  padding: 15px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 13px;
+  color: #d4d4d4;
+  overflow-y: auto;
   white-space: pre-wrap;
 }
 
-.info {
-  margin-top: 20px;
-  padding: 15px;
-  background: #f8f9fa;
-  border-radius: 8px;
-  max-height: 200px;
-  overflow-y: auto;
+/* Scrollbar styling */
+.file-tree::-webkit-scrollbar,
+.output-content::-webkit-scrollbar {
+  width: 10px;
 }
 
-.info h3 {
-  margin-top: 0;
+.file-tree::-webkit-scrollbar-track,
+.output-content::-webkit-scrollbar-track {
+  background: #1e1e1e;
 }
 
-.info ul {
-  margin: 10px 0;
+.file-tree::-webkit-scrollbar-thumb,
+.output-content::-webkit-scrollbar-thumb {
+  background: #424242;
+  border-radius: 5px;
+}
+
+.file-tree::-webkit-scrollbar-thumb:hover,
+.output-content::-webkit-scrollbar-thumb:hover {
+  background: #4e4e4e;
 }
 </style>

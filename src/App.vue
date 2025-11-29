@@ -8,7 +8,8 @@ import { RouterLink, RouterView } from 'vue-router'
       <div class="nav-brand">Node Editor Comparison</div>
       <div class="nav-links">
         <RouterLink to="/">Home</RouterLink>
-        <RouterLink to="/baklava">Custom Demo</RouterLink>
+        <RouterLink to="/baklava">Custom Demo (TS)</RouterLink>
+        <RouterLink to="/baklava-js">Custom Demo (JS)</RouterLink>
         <RouterLink to="/baklava-raw">Baklava.js Info</RouterLink>
         <RouterLink to="/vue-flow">Vue Flow</RouterLink>
         <RouterLink to="/vue-flow-custom">Vue Flow Custom</RouterLink>
