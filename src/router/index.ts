@@ -44,6 +44,11 @@ const router = createRouter({
       name: 'file-explorer',
       component: () => import('../views/FileExplorerDemo.vue'),
     },
+    {
+      path: '/kanban',
+      name: 'kanban',
+      component: () => import('../views/KanbanBoard.vue'),
+    },
   ],
 })
 
