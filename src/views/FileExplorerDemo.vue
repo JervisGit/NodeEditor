@@ -70,6 +70,24 @@
               </span>
             </div>
             <div class="file-actions">
+              <button v-if="!isEditing" @click="startEditing" class="action-btn">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 000-.354l-1.086-1.086zM11.189 6.25L9.75 4.81l-6.286 6.287a.25.25 0 00-.064.108l-.558 1.953 1.953-.558a.249.249 0 00.108-.064l6.286-6.286z"/>
+                </svg>
+                Edit
+              </button>
+              <button v-if="isEditing" @click="saveEdit" class="action-btn save-btn">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/>
+                </svg>
+                Save
+              </button>
+              <button v-if="isEditing" @click="cancelEdit" class="action-btn cancel-btn">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/>
+                </svg>
+                Cancel
+              </button>
               <button class="action-btn">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                   <path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z"/>
@@ -86,10 +104,16 @@
           </div>
           
           <div class="file-content">
-            <div class="line-numbers">
+            <div v-if="!isEditing" class="line-numbers">
               <div v-for="n in getLineCount()" :key="n" class="line-number">{{ n }}</div>
             </div>
-            <pre class="code-content"><code :class="`language-${getLanguage(selectedFile)}`">{{ getFileContent(selectedFile) }}</code></pre>
+            <textarea 
+              v-if="isEditing"
+              v-model="editContent"
+              class="code-editor"
+              spellcheck="false"
+            ></textarea>
+            <pre v-else class="code-content"><code :class="`language-${getLanguage(selectedFile)}`">{{ getFileContent(selectedFile) }}</code></pre>
           </div>
           
           <div class="file-info">
@@ -102,6 +126,7 @@
             <span class="info-item">{{ getLineCount() }} lines</span>
             <span class="info-item">{{ getFileSize() }} bytes</span>
             <span class="info-item">{{ getLanguage(selectedFile) }}</span>
+            <span v-if="isEditing" class="info-item modified">● Modified</span>
           </div>
         </div>
       </div>
@@ -122,6 +147,9 @@ interface FileItem {
 
 const selectedFile = ref<string | null>(null)
 const expandedFolders = ref<Set<string>>(new Set(['src', 'src/components', 'public']))
+const isEditing = ref(false)
+const editContent = ref('')
+const originalContent = ref('')
 
 // Sample file system
 const files = ref<FileItem[]>([
@@ -143,8 +171,17 @@ const files = ref<FileItem[]>([
 const fileTree = computed(() => {
   return files.value.filter(file => {
     if (file.depth === 0) return true
-    const parentPath = file.path.split('/').slice(0, -1).join('/')
-    return expandedFolders.value.has(parentPath)
+    
+    // Check if all parent folders are expanded
+    const pathParts = file.path.split('/')
+    for (let i = 1; i < pathParts.length; i++) {
+      const parentPath = pathParts.slice(0, i).join('/')
+      if (!expandedFolders.value.has(parentPath)) {
+        return false
+      }
+    }
+    
+    return true
   })
 })
 
@@ -173,10 +210,39 @@ const toggleAllFolders = () => {
 
 const handleItemClick = (item: FileItem) => {
   if (item.type === 'file') {
+    if (isEditing.value && selectedFile.value) {
+      // Save current file before switching
+      if (editContent.value !== originalContent.value) {
+        const confirmSwitch = confirm('You have unsaved changes. Do you want to discard them?')
+        if (!confirmSwitch) return
+      }
+      isEditing.value = false
+    }
     selectedFile.value = item.path
   } else {
     toggleFolder(item.path)
   }
+}
+
+const startEditing = () => {
+  const content = getFileContent(selectedFile.value!)
+  editContent.value = content
+  originalContent.value = content
+  isEditing.value = true
+}
+
+const saveEdit = () => {
+  const file = files.value.find(f => f.path === selectedFile.value)
+  if (file) {
+    file.content = editContent.value
+    originalContent.value = editContent.value
+  }
+  isEditing.value = false
+}
+
+const cancelEdit = () => {
+  editContent.value = originalContent.value
+  isEditing.value = false
 }
 
 const getFileContent = (path: string): string => {
@@ -194,12 +260,14 @@ const getBreadcrumbs = (path: string): string[] => {
 
 const getLineCount = (): number => {
   if (!selectedFile.value) return 0
-  return getFileContent(selectedFile.value).split('\n').length
+  const content = isEditing.value ? editContent.value : getFileContent(selectedFile.value)
+  return content.split('\n').length
 }
 
 const getFileSize = (): number => {
   if (!selectedFile.value) return 0
-  return new Blob([getFileContent(selectedFile.value)]).size
+  const content = isEditing.value ? editContent.value : getFileContent(selectedFile.value)
+  return new Blob([content]).size
 }
 
 const getLanguage = (path: string): string => {
@@ -482,6 +550,18 @@ h1 {
   color: #c9d1d9;
 }
 
+.save-btn:hover {
+  background: #238636 !important;
+  border-color: #238636 !important;
+  color: #ffffff !important;
+}
+
+.cancel-btn:hover {
+  background: #da3633 !important;
+  border-color: #da3633 !important;
+  color: #ffffff !important;
+}
+
 .file-content {
   flex: 1;
   display: flex;
@@ -532,6 +612,41 @@ h1 {
   border-radius: 10px;
 }
 
+.code-editor {
+  flex: 1;
+  margin: 0;
+  padding: 16px;
+  background: #0d1117;
+  border: none;
+  color: #c9d1d9;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+.code-editor::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.code-editor::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.code-editor::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 10px;
+}
+
+.code-editor::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}
+
 .file-info {
   padding: 12px 16px;
   background: #161b22;
@@ -550,5 +665,10 @@ h1 {
 
 .info-item svg {
   opacity: 0.7;
+}
+
+.info-item.modified {
+  color: #f85149;
+  font-weight: 600;
 }
 </style>
